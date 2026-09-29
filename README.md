@@ -1,4 +1,4 @@
-﻿# NVIDIA Laptop GPU Power Limit Control (Unified RTX 40 & 50 Series Tuner)
+# NVIDIA Laptop GPU Power Limit Control (Unified RTX 40 & 50 Series Tuner)
 
 > Low-level power management tuner and TDP unlocker for **NVIDIA GeForce RTX 40 Series** (Ada Lovelace) and **RTX 50 Series** (Blackwell) Laptop GPUs.
 
@@ -41,45 +41,64 @@ Modern gaming and workstation laptops enforce strict Total Graphics Power (TGP) 
 
 ---
 
+---
+
 ## Quick Start Guide
 
-Because `Nvpwr.sys` is a custom kernel driver built to interact with NVIDIA's driver in memory, Windows 64-bit requires **Test-Signing Mode** with **Secure Boot disabled**.
+You can run NvpwrControl using either of two methods:
+1. **Method 1: Secure Boot Compatible Mode (Recommended)** — Keeps Secure Boot **ENABLED**, Test-Signing **OFF**, loads driver on-the-fly, and restores DSE so multiplayer anti-cheats (Warzone, Battlefield, Vanguard, EAC) work without issue.
+2. **Method 2: Legacy Test-Signing Mode** — Requires disabling Secure Boot in BIOS and enabling Windows Test Mode.
 
-### Step 1: Disable Secure Boot in BIOS/UEFI
+---
+
+### Method 1: Secure Boot Compatible Mode (Recommended for Anti-Cheat Games)
+
+This method uses KDU (Kernel Driver Utility) to temporarily disable Driver Signature Enforcement (DSE 0) on-the-fly while Secure Boot remains **ON** in UEFI/BIOS. Once the GPU power limits are programmed into hardware/driver memory, `Nvpwr.sys` is unloaded and DSE is restored (DSE 6), leaving the system completely clean.
+
+#### Prerequisites (One-Time Setup)
+1. **Secure Boot in BIOS**: Leave **ENABLED** (or turn it back ON if previously disabled).
+2. **Test Mode**: Keep **OFF** (`bcdedit /set testsigning off`).
+3. **Core Isolation / Memory Integrity**: Must be **OFF** (Windows Security -> Device Security -> Core Isolation -> Memory integrity -> Off).
+4. **Vulnerable Driver Blocklist**: Must be **OFF** in Windows 11:
+   - Right-click **`disable-vulnerable-driver-blocklist.cmd`** and select **Run as administrator**.
+   - **Restart your PC**.
+5. **Antivirus**: Add this folder to Windows Defender exclusions (or temporarily disable Real-Time Protection during launch), as Defender flags KDU by signature.
+
+#### Launching & Applying Power Limit
+- **Option A (Interactive GUI)**:
+  1. Double-click or right-click **`launch-with-secureboot.cmd`** -> **Run as administrator**.
+  2. The script temporarily disables DSE and launches `NvpwrControl.exe`.
+  3. Select your desired Target Power Limit (e.g., 160W) and click **Apply**.
+  4. (Optional) Adjust Core or Memory clock offsets.
+  5. Close the `NvpwrControl` window.
+  6. The script automatically unloads `Nvpwr.sys` from kernel memory and restores DSE (6).
+  7. Launch your games (Call of Duty Warzone, Battlefield 6/2042, etc.) — anti-cheats will detect Secure Boot enabled and clean integrity!
+
+- **Option B (Fast Command-Line / One-Shot)**:
+  1. Right-click **`apply-power-secureboot.cmd`** -> **Run as administrator**, or run via CMD:
+     ```cmd
+     apply-power-secureboot.cmd 5070ti 160
+     ```
+  2. It disables DSE, programs the power limit via `NvpwrCtl`, unloads the driver, and restores DSE within 2 seconds.
+
+---
+
+### Method 2: Legacy Test-Signing Mode (Secure Boot Disabled)
+
+#### Step 1: Disable Secure Boot in BIOS/UEFI
 1. Restart your laptop and press **Del** (or **F2**) to enter BIOS.
 2. Navigate to the **Security** or **Boot** settings.
 3. Set **Secure Boot** to **Disabled**.
 4. Press **F10** to save changes and restart your laptop.
-   *(Note: Windows kernel ignores test-signing if Secure Boot is enabled in hardware).*
 
-### Step 2: Enable Windows Test Mode & Trust Certificate
-1. Open the downloaded release folder.
+#### Step 2: Enable Windows Test Mode & Trust Certificate
+1. Open the release folder.
 2. Right-click **`install-cert-and-enable-testmode.cmd`** and select **Run as administrator**.
-   - This automatically installs `Nvpwr.cer` into Windows Trusted Root / Trusted Publishers.
-   - It executes `bcdedit /set testsigning on`.
 3. **Restart your PC**.
-   *(After restart, "Test Mode" watermark will appear in the bottom-right corner of your desktop).*
 
-### Step 3: Run the Tuner & Apply Desired Power
+#### Step 3: Run the Tuner & Apply Desired Power
 1. Right-click **`NvpwrControl.exe`** and select **Run as administrator**.
-2. The application will detect your GPU model, display your current OEM baseline power, and load available target wattages.
-3. Select your desired target from the dropdown (e.g. up to 250W on RTX 4090 Laptop) and click **Apply**.
-4. Verify the power draw using **HWiNFO**, **GPU-Z**, or your favorite monitoring overlay under heavy GPU load.
-
----
-
-## Switching Back for Games Requiring Secure Boot
-
-Competitive multiplayer games with kernel-level anti-cheats (such as **Valorant / Riot Vanguard**, **EA Sports FC / EA Anti-Cheat**, or **Faceit CS2**) require Secure Boot to be enabled and Test Mode to be turned off.
-
-To switch back to standard OEM mode:
-1. Open Command Prompt or PowerShell as **Administrator**.
-2. Run:
-   ```cmd
-   bcdedit /set testsigning off
-   ```
-3. Enter your BIOS on reboot and set **Secure Boot** back to **Enabled**.
-4. Your laptop will boot normally and run at its standard factory OEM limits (e.g. 175W in Extreme Performance mode) with all anti-cheat games working.
+2. Select your desired target from the dropdown and click **Apply**.
 
 ---
 

@@ -61,14 +61,20 @@ if ($LASTEXITCODE -ne 0) { throw 'Driver compilation failed.' }
   /OUT:"$driverOut\Nvpwr.sys" "$driverOut\driver.obj"
 if ($LASTEXITCODE -ne 0) { throw 'Driver linking failed.' }
 
-# Sign driver with local test certificate
-$cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -match "Nvpwr Local Test Cert" } | Select-Object -First 1
+# Sign driver with persistent NvpwrDriverSigning cert (Custom Kernel Signers PKI).
+# Run setup-cks-pki.ps1 first to generate this certificate.
+$cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -match 'NvpwrDriverSigning' } | Select-Object -First 1
 if (-not $cert) {
-    $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Nvpwr Local Test Cert" -CertStoreLocation "Cert:\CurrentUser\My"
+    # Fallback: create a temporary self-signed cert so the build still produces a .sys.
+    # This .sys will only load in Test Mode. Run setup-cks-pki.ps1 to enable
+    # loading with Secure Boot ON and Test Mode OFF.
+    Write-Host 'WARNING: NvpwrDriverSigning cert not found. Falling back to temporary test cert.' -ForegroundColor Yellow
+    Write-Host '         Run setup-cks-pki.ps1 to set up the Custom Kernel Signers PKI.' -ForegroundColor Yellow
+    $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Nvpwr Fallback Test Cert' -CertStoreLocation 'Cert:\CurrentUser\My'
 }
 Export-Certificate -Cert $cert -FilePath "$PSScriptRoot\driver\Nvpwr.cer" -Force | Out-Null
 if ($signtool) {
-    & $signtool sign /fd sha256 /sha1 $cert.Thumbprint /v "$driverOut\Nvpwr.sys"
+    & $signtool sign /fd sha256 /sha1 $cert.Thumbprint /t http://timestamp.digicert.com /v "$driverOut\Nvpwr.sys"
 }
 
 # 2. GUI Build

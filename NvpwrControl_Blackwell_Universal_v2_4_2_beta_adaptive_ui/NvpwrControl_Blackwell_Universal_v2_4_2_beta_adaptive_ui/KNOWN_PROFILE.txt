@@ -1,0 +1,27 @@
+Built-in exact reference profile
+===============================
+GPU: NVIDIA GeForce RTX 5070 Ti Laptop GPU
+VBIOS: 98.05.4E.00.07
+Driver: NVIDIA 617.14
+
+nvlddmkm SHA256:
+101ae659a3cbaec04a749559cf227c87e9b5d310d5c8308c0dc1cf3fb9b037f6
+
+nvapi64_impl SHA256:
+ff1527cea533c75f89033f7c0d9cdbaa6ec84bcac26c1db082227d68efd6a16e
+
+Known transport RVA: 0x390790
+RM API: 0x07000046
+CURRENT RM command: 0x2080E633
+Packet size: 0x122D70
+
+Known VBIOS geometry:
+Power Budget table raw: 0x8DBDB
+MAX field raw: 0x8DCF4
+Legacy code-0 image raw: 0x35C00
+Normalized shadow MAX offset: 0x580F4
+
+Live proof:
+- E633 140 -> 135 -> 140 changed Current + all four PowerPolicyGetStatus CURRENT/F7 readbacks.
+- E633 140 -> 145 -> 140 changed Current + all four readbacks.
+- measured GPU draw reached the 145-W class.
