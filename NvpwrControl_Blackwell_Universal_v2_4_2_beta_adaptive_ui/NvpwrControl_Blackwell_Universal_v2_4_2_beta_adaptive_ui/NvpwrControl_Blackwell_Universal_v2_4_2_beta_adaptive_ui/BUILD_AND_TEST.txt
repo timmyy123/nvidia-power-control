@@ -1,0 +1,22 @@
+﻿NvpwrControl 2.4.2 beta — build/test
+
+1. Open Windows PowerShell as Administrator.
+2. cd to this folder.
+3. Set-ExecutionPolicy -Scope Process Bypass -Force
+4. .\build.ps1
+5. Run .\dist\NvpwrControl.exe
+
+Expected UI checks:
+- resize window and maximize/restore: content remains centered and cards expand, no header overlap;
+- Power: MAX/CURRENT sliders show the detected SKU range and 5 W steps;
+- Compatibility: GPU/PCI, Driver/RM, VBIOS/MAX and Policy cards are visible;
+- Settings: Graphite/Midnight/Light plus independent global/button/slider colors, including Custom…;
+- application icon is visible in Explorer/taskbar/title bar.
+
+Resolver checks before any raised-power test:
+- GPU/PCI identity matches the actual adapter;
+- VBIOS resolver reports exactly one compatible candidate and semantic score >=75;
+- Policy is Consistent=True;
+- new NVIDIA driver is validated by the no-op path before CURRENT writes become available.
+
+The Linux packaging environment cannot run the Windows .NET Framework csc.exe, so the included source receives static lexical/manifest/hash checks here; final compilation is performed by build.ps1 on Windows.
