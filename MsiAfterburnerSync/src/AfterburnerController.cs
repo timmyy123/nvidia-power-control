@@ -168,17 +168,8 @@ namespace MsiAfterburnerSync
 
             try
             {
-                // Terminate any running instance of MSIAfterburner so that it cleanly applies the target profile on startup
-                Process[] procs = Process.GetProcessesByName("MSIAfterburner");
-                foreach (Process p in procs)
-                {
-                    try
-                    {
-                        p.Kill();
-                        p.WaitForExit(1500);
-                    }
-                    catch { }
-                }
+                // Dispatch profile command to MSI Afterburner in silent tray mode (-s).
+                // If Afterburner is already running, this tells the active instance to switch profiles via IPC without terminating or restarting it.
 
                 // Launch MSIAfterburner with target profile in silent tray mode (-s)
                 ProcessStartInfo psi = new ProcessStartInfo

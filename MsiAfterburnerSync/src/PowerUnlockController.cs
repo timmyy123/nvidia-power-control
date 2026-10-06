@@ -62,6 +62,12 @@ namespace MsiAfterburnerSync
                         return false;
                     }
 
+                    if (ps.CurrentW.HasValue && Math.Abs(ps.CurrentW.Value - targetWatts) <= 1.0)
+                    {
+                        message = "Power limit already at " + targetWatts + "W.";
+                        return true;
+                    }
+
                     OperationResult result = backend.SetCurrent(targetWatts);
                     message = result.Message;
                     return result.Success;
