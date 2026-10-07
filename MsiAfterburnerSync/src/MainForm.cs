@@ -72,12 +72,11 @@ namespace MsiAfterburnerSync
             InitTrayIcon();
             StartShowWindowListener();
 
-            // Check and clean up legacy NvpwrControl autostart task (since user wants NvpwrControl NEVER autostarting with Windows)
-            string cleanupErr;
-            if (TaskSchedulerHelper.DeleteNvpwrControlTask(out cleanupErr))
+            try
             {
-                Log("Disabled/removed NvpwrControlBlackwell Windows startup task.");
+                Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding;
             }
+            catch { }
 
             _watcher = new MsiWatcher(OnMsiScenarioChanged, Log);
             _watcher.TimeoutSec = _settings.DelaySec;
@@ -125,14 +124,6 @@ namespace MsiAfterburnerSync
 
             FormClosing += delegate(object sender, FormClosingEventArgs e)
             {
-                if (!_forceExit && e.CloseReason == CloseReason.UserClosing && _settings.CloseToTray)
-                {
-                    e.Cancel = true;
-                    Hide();
-                    if (_trayIcon != null) _trayIcon.Visible = true;
-                    return;
-                }
-
                 _forceExit = true;
                 if (_showWindowEvent != null)
                 {
@@ -150,9 +141,44 @@ namespace MsiAfterburnerSync
                     _watcher.Dispose();
                     _watcher = null;
                 }
+                try
+                {
+                    Microsoft.Win32.SystemEvents.SessionEnding -= OnSessionEnding;
+                }
+                catch { }
                 SaveUiSettings();
                 Application.Exit();
+                Environment.Exit(0);
             };
+        }
+
+        private void OnSessionEnding(object sender, Microsoft.Win32.SessionEndingEventArgs e)
+        {
+            _forceExit = true;
+            if (_watcher != null)
+            {
+                try { _watcher.Dispose(); } catch { }
+                _watcher = null;
+            }
+            Environment.Exit(0);
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_QUERYENDSESSION = 0x0011;
+            const int WM_ENDSESSION = 0x0016;
+            if (m.Msg == WM_QUERYENDSESSION || m.Msg == WM_ENDSESSION)
+            {
+                _forceExit = true;
+                if (_watcher != null)
+                {
+                    try { _watcher.Dispose(); } catch { }
+                    _watcher = null;
+                }
+                m.Result = (IntPtr)1;
+                return;
+            }
+            base.WndProc(ref m);
         }
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -642,42 +668,8 @@ namespace MsiAfterburnerSync
 
         private void InitTrayIcon()
         {
-            try
-            {
-                _trayMenu = new ContextMenuStrip();
-                ToolStripMenuItem itemShow = new ToolStripMenuItem("Open MsiAfterburnerSync", null, delegate { RestoreWindow(); });
-                itemShow.Font = new Font(itemShow.Font, FontStyle.Bold);
-
-                ToolStripMenuItem itemApply = new ToolStripMenuItem("Apply Profile " + _settings.ProfileSlot + " Now", null, delegate
-                {
-                    ApplyAfterburnerProfile("Tray manual trigger");
-                });
-
-                ToolStripSeparator sep = new ToolStripSeparator();
-
-                ToolStripMenuItem itemExit = new ToolStripMenuItem("Exit", null, delegate
-                {
-                    _forceExit = true;
-                    Close();
-                });
-
-                _trayMenu.Items.AddRange(new ToolStripItem[] { itemShow, itemApply, sep, itemExit });
-
-                _trayIcon = new NotifyIcon
-                {
-                    Icon = this.Icon ?? SystemIcons.Application,
-                    Text = "MSI Afterburner & Power Limit Sync (0% CPU)",
-                    ContextMenuStrip = _trayMenu,
-                    Visible = true
-                };
-
-                _trayIcon.DoubleClick += delegate { RestoreWindow(); };
-                _trayIcon.MouseClick += (s, e) =>
-                {
-                    if (e.Button == MouseButtons.Left) RestoreWindow();
-                };
-            }
-            catch { }
+            // Tray icon strictly disabled - user requested zero tray icon
+            _trayIcon = null;
         }
 
         private void OnMsiScenarioChanged()
@@ -687,6 +679,12 @@ namespace MsiAfterburnerSync
 
         private void ApplyAfterburnerProfile(string triggerReason)
         {
+            if (PowerUnlockController.IsAntiCheatGameRunning())
+            {
+                Log("[" + triggerReason + "] Anti-cheat protected game is active. Skipping GPU hook calls to protect game integrity.");
+                return;
+            }
+
             // 1. Re-apply Power Unlock (if enabled)
             string powerResultMsg = "";
             bool powerOk = true;
@@ -698,21 +696,22 @@ namespace MsiAfterburnerSync
                 Log("[" + triggerReason + "] Power Unlock (" + _settings.PowerTargetWatts + "W) -> " + (powerOk ? "SUCCESS" : "FAIL: " + pMsg));
             }
 
-            // 2. Re-apply MSI Afterburner OC Profile
-            string msg;
-            bool ok = AfterburnerController.ApplyProfile(_settings.AfterburnerPath, _settings.ProfileSlot, out msg);
-            string logLine = "[" + triggerReason + "] Profile " + _settings.ProfileSlot + " -> " + (ok ? "SUCCESS" : "FAIL: " + msg);
-            Log(logLine);
-
-            if (ok && _settings.NotifyOnApply && _trayIcon != null)
+            // 2. Direct Hardware Overclock via NVAPI (+240 Core, +1100 Mem)
+            int coreMhz = _settings.CoreOffsetMHz;
+            int memMhz = _settings.MemoryOffsetMHz;
+            if (coreMhz != 0 || memMhz != 0)
             {
-                try
-                {
-                    string details = AfterburnerController.GetProfileDetails(_settings.AfterburnerPath, _settings.ProfileSlot);
-                    string tipText = "Reapplied Profile " + _settings.ProfileSlot + " (" + details + ")" + powerResultMsg;
-                    _trayIcon.ShowBalloonTip(2500, "MSI Sync", tipText, ToolTipIcon.Info);
-                }
-                catch { }
+                string ocMsg;
+                bool ocOk = PowerUnlockController.ApplyOverclock(coreMhz, memMhz, out ocMsg);
+                Log("[" + triggerReason + "] Hardware OC (Core " + (coreMhz >= 0 ? "+" : "") + coreMhz + " MHz, Mem " + (memMhz >= 0 ? "+" : "") + memMhz + " MHz) -> " + (ocOk ? "SUCCESS" : "FAIL: " + ocMsg));
+            }
+
+            // 3. Re-apply MSI Afterburner OC Profile (if path exists)
+            if (!string.IsNullOrEmpty(_settings.AfterburnerPath) && File.Exists(_settings.AfterburnerPath))
+            {
+                string msg;
+                bool ok = AfterburnerController.ApplyProfile(_settings.AfterburnerPath, _settings.ProfileSlot, out msg);
+                Log("[" + triggerReason + "] Profile " + _settings.ProfileSlot + " -> " + (ok ? "SUCCESS" : "FAIL: " + msg));
             }
         }
 

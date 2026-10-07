@@ -92,5 +92,53 @@ namespace MsiAfterburnerSync
                 }
             }
         }
+
+        public static bool IsAntiCheatGameRunning()
+        {
+            try
+            {
+                string[] acProcesses = new string[]
+                {
+                    "EAAntiCheat.GameService",
+                    "EAAntiCheat",
+                    "bf2042",
+                    "BF2042",
+                    "EasyAntiCheat",
+                    "EasyAntiCheat_EOS",
+                    "BEService",
+                    "vgc"
+                };
+                foreach (string name in acProcesses)
+                {
+                    if (System.Diagnostics.Process.GetProcessesByName(name).Length > 0)
+                        return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        public static bool ApplyOverclock(int coreMhz, int memMhz, out string message)
+        {
+            try
+            {
+                TuneRequest req = new TuneRequest
+                {
+                    SetCore = true,
+                    CoreMHz = coreMhz,
+                    SetMemory = true,
+                    MemoryMHz = memMhz
+                };
+                TunerState post;
+                OperationResult res = NvApiTuner.Apply(req, true, out post);
+                message = res.Message;
+                return res.Success;
+            }
+            catch (Exception ex)
+            {
+                message = "OC exception: " + ex.Message;
+                return false;
+            }
+        }
     }
 }
