@@ -120,6 +120,12 @@ namespace NvpwrControlBlackwell
             InitTrayIcon();
             StartShowWindowListener();
 
+            try
+            {
+                Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding;
+            }
+            catch { }
+
             Shown += delegate
             {
                 if (_settings.WindowMaximized) WindowState = FormWindowState.Maximized;
@@ -163,6 +169,11 @@ namespace NvpwrControlBlackwell
                     _msiWatcher.Dispose();
                     _msiWatcher = null;
                 }
+                try
+                {
+                    Microsoft.Win32.SystemEvents.SessionEnding -= OnSessionEnding;
+                }
+                catch { }
                 try { Application.Exit(); } catch { }
                 try { Environment.Exit(0); } catch { }
             };
@@ -183,8 +194,31 @@ namespace NvpwrControlBlackwell
             if (_settings.MsiAutoApply)
             {
                 _msiWatcher.Start();
-                EnsureMsiSyncRunning();
             }
+        }
+
+        private void OnSessionEnding(object sender, Microsoft.Win32.SessionEndingEventArgs e)
+        {
+            _forceExit = true;
+            if (_timer != null) { try { _timer.Stop(); } catch { } }
+            if (_msiWatcher != null) { try { _msiWatcher.Dispose(); } catch { } }
+            Environment.Exit(0);
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_QUERYENDSESSION = 0x0011;
+            const int WM_ENDSESSION = 0x0016;
+            if (m.Msg == WM_QUERYENDSESSION || m.Msg == WM_ENDSESSION)
+            {
+                _forceExit = true;
+                if (_timer != null) { try { _timer.Stop(); } catch { } }
+                if (_msiWatcher != null) { try { _msiWatcher.Dispose(); } catch { } }
+                m.Result = (IntPtr)1;
+                Environment.Exit(0);
+                return;
+            }
+            base.WndProc(ref m);
         }
 
         protected override void SetVisibleCore(bool value)
@@ -1603,60 +1637,9 @@ namespace NvpwrControlBlackwell
                 {
                     _settings.CurrentSelection = w;
                     SettingsStore.Save(_settings);
-                    EnsureMsiSyncRunning();
                 }
                 return r;
             }, true);
-        }
-
-        private void EnsureMsiSyncRunning()
-        {
-            try
-            {
-                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-                string syncExe = Path.Combine(baseDir, "MsiAfterburnerSync.exe");
-                if (!File.Exists(syncExe))
-                    syncExe = Path.Combine(baseDir, "..", "MsiAfterburnerSync.exe");
-                if (!File.Exists(syncExe))
-                    syncExe = Path.Combine(baseDir, "MsiAfterburnerSync", "dist", "MsiAfterburnerSync.exe");
-                if (!File.Exists(syncExe))
-                    syncExe = Path.Combine(baseDir, "..", "MsiAfterburnerSync", "dist", "MsiAfterburnerSync.exe");
-                if (!File.Exists(syncExe))
-                    syncExe = Path.Combine(baseDir, "..", "..", "MsiAfterburnerSync.exe");
-                if (!File.Exists(syncExe))
-                    syncExe = Path.Combine(baseDir, "..", "..", "MsiAfterburnerSync", "dist", "MsiAfterburnerSync.exe");
-
-                if (File.Exists(syncExe))
-                {
-                    syncExe = Path.GetFullPath(syncExe);
-                    string userName = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
-                    string ps =
-                        "$a=New-ScheduledTaskAction -Execute '" + syncExe.Replace("'", "''") + "' -Argument '--minimized';" +
-                        "$t=New-ScheduledTaskTrigger -AtLogOn;" +
-                        "$p=New-ScheduledTaskPrincipal -UserId '" + userName.Replace("'", "''") + "' -LogonType Interactive -RunLevel Highest;" +
-                        "$s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0;" +
-                        "Register-ScheduledTask -TaskName 'MsiAfterburnerSync' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null;";
-                    
-                    string encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(ps));
-                    int rc;
-                    SystemProbe.RunProcess("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -EncodedCommand " + encoded, 10000, out rc);
-
-                    if (System.Diagnostics.Process.GetProcessesByName("MsiAfterburnerSync").Length == 0)
-                    {
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = syncExe,
-                            Arguments = "--minimized",
-                            UseShellExecute = true
-                        });
-                        AppLog.Write("Started MsiAfterburnerSync background watcher: " + syncExe);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                AppLog.Write("EnsureMsiSyncRunning error: " + ex.Message);
-            }
         }
 
         private async void RestoreCurrentAsync()
