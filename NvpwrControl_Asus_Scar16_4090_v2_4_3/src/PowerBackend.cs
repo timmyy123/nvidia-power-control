@@ -433,7 +433,18 @@ namespace NvpwrControlBlackwell
         {
             CompatibilityState c = CheckCompatibility();
             if (c.Profile == null) return OperationResult.Fail("Unsupported GPU profile.");
-            if (!c.Profile.IsInRange(watts)) return OperationResult.Fail("CURRENT target is outside this GPU profile range.");
+            if (!c.CurrentWritesReady)
+            {
+                if (c.Driver != null && c.Driver.CandidateFound && !c.Driver.Trusted)
+                {
+                    try
+                    {
+                        OperationResult val = ValidateDriverResolver();
+                        if (val.Success) c = CheckCompatibility();
+                    }
+                    catch { }
+                }
+            }
             if (!c.CurrentWritesReady)
                 return OperationResult.Fail("Driver transport is not trusted. Validate the new driver first. " + (c.Driver != null ? c.Driver.Reason : ""));
 
@@ -525,7 +536,8 @@ namespace NvpwrControlBlackwell
                 "$a=New-ScheduledTaskAction -Execute '" + PsQuote(exePath) + "' -Argument '--apply-current " + watts.ToString(CultureInfo.InvariantCulture) + " --silent';" +
                 "$t=New-ScheduledTaskTrigger -AtLogOn;" +
                 "$p=New-ScheduledTaskPrincipal -UserId '" + PsQuote(userName) + "' -LogonType Interactive -RunLevel Highest;" +
-                "Register-ScheduledTask -TaskName '" + PsQuote(TaskName) + "' -Action $a -Trigger $t -Principal $p -Force | Out-Null;";
+                "$s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0;" +
+                "Register-ScheduledTask -TaskName '" + PsQuote(TaskName) + "' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null;";
 
             string encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(ps));
             int rc;

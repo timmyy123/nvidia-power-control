@@ -39,6 +39,19 @@ namespace MsiAfterburnerSync
 
                     if (!c.CurrentWritesReady)
                     {
+                        if (c.Driver != null && c.Driver.CandidateFound && !c.Driver.Trusted)
+                        {
+                            try
+                            {
+                                backend.ValidateDriverResolver();
+                                c = backend.CheckCompatibility();
+                            }
+                            catch { }
+                        }
+                    }
+
+                    if (!c.CurrentWritesReady)
+                    {
                         message = "Driver transport not validated/trusted: " + (c.Driver != null ? c.Driver.Reason : c.Reason);
                         return false;
                     }

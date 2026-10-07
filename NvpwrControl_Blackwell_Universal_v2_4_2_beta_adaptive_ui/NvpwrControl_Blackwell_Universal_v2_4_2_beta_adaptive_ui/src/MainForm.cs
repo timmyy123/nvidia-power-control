@@ -131,11 +131,6 @@ namespace NvpwrControlBlackwell
                 if (WindowState == FormWindowState.Minimized)
                 {
                     if (_timer != null) _timer.Stop();
-                    if (_settings.CloseToTray || _settings.MsiAutoApply)
-                    {
-                        Hide();
-                        ShowInTaskbar = false;
-                    }
                 }
                 else if (WindowState != FormWindowState.Minimized && Visible && _settings.TelemetryEnabled)
                 {
@@ -144,19 +139,6 @@ namespace NvpwrControlBlackwell
             };
             FormClosing += delegate(object sender, FormClosingEventArgs e)
             {
-                if (!_forceExit && (e.CloseReason == CloseReason.UserClosing) && (_settings.CloseToTray || _settings.MsiAutoApply))
-                {
-                    e.Cancel = true;
-                    if (_timer != null) _timer.Stop();
-                    Hide();
-                    ShowInTaskbar = false;
-                    if (_trayIcon != null)
-                    {
-                        _trayIcon.Visible = true;
-                    }
-                    return;
-                }
-
                 _forceExit = true;
                 if (_timer != null)
                 {
@@ -176,7 +158,13 @@ namespace NvpwrControlBlackwell
                     _trayIcon = null;
                 }
                 SaveSettings();
-                if (_msiWatcher != null) _msiWatcher.Dispose();
+                if (_msiWatcher != null)
+                {
+                    _msiWatcher.Dispose();
+                    _msiWatcher = null;
+                }
+                try { Application.Exit(); } catch { }
+                try { Environment.Exit(0); } catch { }
             };
 
             _timer = new System.Windows.Forms.Timer();
@@ -192,7 +180,11 @@ namespace NvpwrControlBlackwell
             }
 
             RefreshEverythingAsync();
-            if (_settings.MsiAutoApply) _msiWatcher.Start();
+            if (_settings.MsiAutoApply)
+            {
+                _msiWatcher.Start();
+                EnsureMsiSyncRunning();
+            }
         }
 
         protected override void SetVisibleCore(bool value)
@@ -268,53 +260,8 @@ namespace NvpwrControlBlackwell
 
         private void InitTrayIcon()
         {
-            try
-            {
-                _trayMenu = new ContextMenuStrip();
-                ToolStripMenuItem itemShow = new ToolStripMenuItem(T("trayOpen") ?? "Open NvpwrControl", null, delegate { RestoreWindow(); });
-                itemShow.Font = new Font(itemShow.Font, FontStyle.Bold);
-
-                ToolStripMenuItem itemReapply = new ToolStripMenuItem(T("trayReapply") ?? "Re-apply Settings Now", null, delegate { ReapplyAllAsync(); });
-
-                ToolStripSeparator sep = new ToolStripSeparator();
-
-                ToolStripMenuItem itemExit = new ToolStripMenuItem(T("trayExit") ?? "Exit NvpwrControl", null, delegate
-                {
-                    _forceExit = true;
-                    Close();
-                });
-
-                _trayMenu.Items.AddRange(new ToolStripItem[] { itemShow, itemReapply, sep, itemExit });
-
-                Icon appIcon = this.Icon;
-                if (appIcon == null)
-                {
-                    try { appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
-                }
-                if (appIcon == null) appIcon = SystemIcons.Application;
-
-                _trayIcon = new NotifyIcon
-                {
-                    Icon = appIcon,
-                    Text = "NvpwrControl (MSI Watcher Active)",
-                    ContextMenuStrip = _trayMenu,
-                    Visible = true
-                };
-
-                _trayIcon.DoubleClick += delegate { RestoreWindow(); };
-                _trayIcon.MouseClick += (s, e) =>
-                {
-                    if (e.Button == MouseButtons.Left)
-                    {
-                        RestoreWindow();
-                    }
-                };
-                _trayIcon.BalloonTipClicked += delegate { RestoreWindow(); };
-            }
-            catch (Exception ex)
-            {
-                AppLog.Write("InitTrayIcon error: " + ex.Message);
-            }
+            // Tray icon disabled: app runs as a clean desktop window and never shows a tray icon.
+            _trayIcon = null;
         }
 
         private void ReapplyAllAsync()
@@ -1650,7 +1597,66 @@ namespace NvpwrControlBlackwell
                 MessageBox.Show(this, T("validateDriverFirst"), "NvpwrControl", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 ShowPage("compatibility"); return;
             }
-            await RunOperationTask(delegate { return _power.SetCurrent(w); }, true);
+            await RunOperationTask(delegate {
+                OperationResult r = _power.SetCurrent(w);
+                if (r.Success)
+                {
+                    _settings.CurrentSelection = w;
+                    SettingsStore.Save(_settings);
+                    EnsureMsiSyncRunning();
+                }
+                return r;
+            }, true);
+        }
+
+        private void EnsureMsiSyncRunning()
+        {
+            try
+            {
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                string syncExe = Path.Combine(baseDir, "MsiAfterburnerSync.exe");
+                if (!File.Exists(syncExe))
+                    syncExe = Path.Combine(baseDir, "..", "MsiAfterburnerSync.exe");
+                if (!File.Exists(syncExe))
+                    syncExe = Path.Combine(baseDir, "MsiAfterburnerSync", "dist", "MsiAfterburnerSync.exe");
+                if (!File.Exists(syncExe))
+                    syncExe = Path.Combine(baseDir, "..", "MsiAfterburnerSync", "dist", "MsiAfterburnerSync.exe");
+                if (!File.Exists(syncExe))
+                    syncExe = Path.Combine(baseDir, "..", "..", "MsiAfterburnerSync.exe");
+                if (!File.Exists(syncExe))
+                    syncExe = Path.Combine(baseDir, "..", "..", "MsiAfterburnerSync", "dist", "MsiAfterburnerSync.exe");
+
+                if (File.Exists(syncExe))
+                {
+                    syncExe = Path.GetFullPath(syncExe);
+                    string userName = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+                    string ps =
+                        "$a=New-ScheduledTaskAction -Execute '" + syncExe.Replace("'", "''") + "' -Argument '--minimized';" +
+                        "$t=New-ScheduledTaskTrigger -AtLogOn;" +
+                        "$p=New-ScheduledTaskPrincipal -UserId '" + userName.Replace("'", "''") + "' -LogonType Interactive -RunLevel Highest;" +
+                        "$s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0;" +
+                        "Register-ScheduledTask -TaskName 'MsiAfterburnerSync' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null;";
+                    
+                    string encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(ps));
+                    int rc;
+                    SystemProbe.RunProcess("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -EncodedCommand " + encoded, 10000, out rc);
+
+                    if (System.Diagnostics.Process.GetProcessesByName("MsiAfterburnerSync").Length == 0)
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = syncExe,
+                            Arguments = "--minimized",
+                            UseShellExecute = true
+                        });
+                        AppLog.Write("Started MsiAfterburnerSync background watcher: " + syncExe);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("EnsureMsiSyncRunning error: " + ex.Message);
+            }
         }
 
         private async void RestoreCurrentAsync()

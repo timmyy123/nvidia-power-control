@@ -24,7 +24,7 @@ namespace NvpwrControlBlackwell
         public int UiScalePercent = 100;
         public bool MsiAutoApply = true;
         public int MsiTimeoutSec = 1;
-        public bool CloseToTray = true;
+        public bool CloseToTray = false;
         public int CoreOffsetMHz = 0;
         public bool CoreOffsetEnabled = false;
         public int MemoryOffsetMHz = 0;

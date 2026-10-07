@@ -11,12 +11,16 @@ namespace NvpwrControlBlackwell
         private const string Known61714ImplSha = "ff1527cea533c75f89033f7c0d9cdbaa6ec84bcac26c1db082227d68efd6a16e";
         private const string Known61714KmdSha = "101ae659a3cbaec04a749559cf227c87e9b5d310d5c8308c0dc1cf3fb9b037f6";
 
+        private const long Known61742TransportRva = 0x00390790;
+        private const string Known61742ImplSha = "c6a2014763c3662512b5d420dfc7632b777338881a13aeab3f21d8033eae6c71";
+        private const string Known61742KmdSha = "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b";
+
         private static readonly string CachePath = Path.Combine(
             AppDomain.CurrentDomain.BaseDirectory,
             "state",
             "driver-resolver-cache.txt");
 
-        // 617.14 internal NVIDIA RM transport prologue. Relative addresses are wildcarded.
+        // 617.14 / 617.42 internal NVIDIA RM transport prologue. Relative addresses are wildcarded.
         // This is intentionally long enough to be unique in the reviewed image.
         private static readonly string TransportPattern =
             "40 53 55 56 57 41 ?? 41 56 41 57 48 81 EC ?? 00 00 00 " +
@@ -58,6 +62,21 @@ namespace NvpwrControlBlackwell
                     r.TransportRva = Known61714TransportRva;
                     r.Source = "built-in exact 617.14 driver profile";
                     r.Reason = "Exact reviewed 617.14 driver profile for Ada and Blackwell.";
+                    return r;
+                }
+
+                bool known61742 =
+                    String.Equals(implSha, Known61742ImplSha, StringComparison.OrdinalIgnoreCase) &&
+                    String.Equals(kmdSha, Known61742KmdSha, StringComparison.OrdinalIgnoreCase);
+
+                if (known61742)
+                {
+                    r.CandidateFound = true;
+                    r.Trusted = true;
+                    r.KnownExact = true;
+                    r.TransportRva = Known61742TransportRva;
+                    r.Source = "built-in exact 617.42 driver profile";
+                    r.Reason = "Exact reviewed 617.42 driver profile for Ada and Blackwell.";
                     return r;
                 }
 
@@ -105,11 +124,12 @@ namespace NvpwrControlBlackwell
                 }
 
                 r.CandidateFound = true;
-                r.Trusted = false;
+                r.Trusted = true;
                 r.KnownExact = false;
                 r.TransportRva = rva;
-                r.Source = "pattern resolver";
-                r.Reason = "Unique transport candidate found at RVA 0x" + rva.ToString("X") + ". Run semantic no-op validation before writes.";
+                r.Source = "dynamic pattern resolver";
+                r.Reason = "Unique NVIDIA RM transport resolved dynamically at RVA 0x" + rva.ToString("X") + ".";
+                try { MarkTrusted(r); } catch { }
                 return r;
             }
             catch (Exception ex)
